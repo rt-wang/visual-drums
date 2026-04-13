@@ -29,8 +29,8 @@ export default function App() {
             required.
           </p>
           <ul className="intro-legend">
-            <li>EDIT: move your right index across the grid to aim.</li>
-            <li>Pinch your right thumb + right index to toggle the highlighted cell.</li>
+            <li>EDIT: move either index across the grid to aim.</li>
+            <li>Pinch left or right thumb + index to toggle the highlighted cell.</li>
             <li>
               Open both hands (hold ~300 ms) to enter MIX mode — finger mapping
               activates there.

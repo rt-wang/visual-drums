@@ -80,7 +80,7 @@ const PINCH_POINTER_ANGLE_DEG = 105
 const PINCH_CURSOR_BLEND = 0.6
 const COMMIT_COOLDOWN_MS = 100
 
-const POINTER_KEY: FingerKey = 'R_index'
+const EDIT_POINTER_KEYS: FingerKey[] = ['L_index', 'R_index']
 
 const emptyMuted = (): Record<Instrument, boolean> =>
   INSTRUMENTS.reduce((acc, inst) => {
@@ -239,7 +239,7 @@ export class GestureProcessor {
       let pinching = false
       let overlayTip: Point = track.smoothed!
 
-      if (key === POINTER_KEY) {
+      if (EDIT_POINTER_KEYS.includes(key)) {
         const ratio = pinchRatio(handLms, 'index')
         const pointerActive = stableExtended || pinchPointerReady(handLms)
         const thumbTip = mirrorPoint(handLms[THUMB_TIP])

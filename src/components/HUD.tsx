@@ -7,7 +7,7 @@ export default function HUD() {
   const legend =
     mode === 'mix'
       ? 'MIX fingers: L idx = Kick · L mid = Snare · R idx = CH · R mid = OH · R pinky = Rim'
-      : 'EDIT: move R index across the grid, pinch R thumb + index to toggle'
+      : 'EDIT: move either index across the grid, pinch that thumb + index to toggle'
 
   return (
     <div className="hud">
