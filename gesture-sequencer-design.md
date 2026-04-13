@@ -1,12 +1,15 @@
 # Gesture Drum Sequencer — Design Doc
 
-A webcam-driven 16-step drum sequencer. Hand landmarks from MediaPipe drive a transparent sequencer UI overlaid on live video. Tone.js handles audio scheduling.
+A webcam-driven 16-step drum sequencer. Hand landmarks from MediaPipe drive a transparent sequencer UI overlaid on live video. Tone.js handles audio. One view, two modes: edit (default) and mix (while both hands are fully open).
 
 ---
 
 ## 1. Goal
 
-Build a browser app where the user programs a 5-instrument, 16-step drum loop using only hand gestures in front of their webcam. Each of 5 fingers maps to one drum voice. The user hovers horizontally to pick a step and pinches to toggle the note. Two views: single-track and 5-row panel.
+Browser app where the user programs and performs a 5-instrument, 16-step drum loop using only hand gestures. Each of 5 fingers maps to one drum voice. The full 5×16 grid is always visible.
+
+- **Edit mode (default):** pinch thumb-to-mapped-finger to toggle notes on that finger's row at the step under the fingertip.
+- **Mix mode (while both hands are fully open):** each extended mapped finger = track unmuted; each fully-curled mapped finger = muted. Mix state is live-held, not latched — relax your hands and all 5 tracks play again.
 
 ---
 
@@ -15,59 +18,65 @@ Build a browser app where the user programs a 5-instrument, 16-step drum loop us
 - **Vite + React + TypeScript**
 - **@mediapipe/tasks-vision** — Hand Landmarker (primary input)
 - **Tone.js** — transport, scheduling, sample playback
-- **Canvas API** — overlay rendering (grid, playhead, hover ring, fingertip markers)
-- **Zustand** — app state (optional but recommended)
+- **Canvas API** — overlay rendering
+- **Zustand** — app state (recommended)
 
-Use Hand Landmarker, not Gesture Recognizer. We derive intent from raw landmark geometry (finger identity + extension + pinch), not from a classifier.
+Use Hand Landmarker, not Gesture Recognizer. Intent is derived from raw landmark geometry (finger identity + extension + curl + pinch).
 
 ---
 
 ## 3. Finger → instrument mapping
 
-Fixed for the MVP:
+| Hand  | Finger | Instrument  | Key   |
+|-------|--------|-------------|-------|
+| Left  | Index  | Kick        | kick  |
+| Left  | Middle | Snare       | snare |
+| Right | Index  | Closed hat  | ch    |
+| Right | Middle | Open hat    | oh    |
+| Right | Pinky  | Rim         | rim   |
 
-| Hand  | Finger | Instrument   | Key  |
-|-------|--------|--------------|------|
-| Left  | Index  | Kick         | kick |
-| Left  | Middle | Snare        | snare|
-| Right | Index  | Closed hat   | ch   |
-| Right | Middle | Open hat     | oh   |
-| Right | Ring   | Rim          | rim  |
+**Why pinky for rim, not ring.** Ring and middle fingers share a tendon sheath — most people cannot curl ring independently of middle. Mix mode requires per-finger curl detection, so ring is unusable. Pinky has independent control. We pay a small tracking-stability cost on pinky for the big anatomical win of independence.
 
-Thumbs and pinkies are intentionally unused — less stable, less separable on webcam.
-
----
-
-## 4. Interaction model
-
-Three interpretation layers on top of MediaPipe landmarks:
-
-**Layer 1 — Finger identity.** From handedness + landmark index, identify which of the 5 mapped fingertips is visible.
-
-**Layer 2 — Armed state.** A mapped finger is "armed" when extended, stable across N frames, and confidence is high. The armed finger implies the active instrument.
-
-**Layer 3 — Command gestures.**
-
-- **Place/remove note** — armed fingertip hovers over a step, pinch thumb-to-that-finger to toggle.
-- **View switch** — both palms open, all 5 mapped fingers extended, held 500 ms.
-- **Track selection in single-track view** — implicit: whichever mapped finger is currently armed becomes the selected track. No separate select gesture.
+Thumbs are reserved for pinching and not mapped to instruments. Ring fingers are unmapped and their state is ignored.
 
 ---
 
-## 5. Views
+## 4. The single view: 5×16 panel
 
-### Single-track view
-- One instrument's row, 16 large cells, centered horizontal strip.
-- Instrument label on left, mini row of 5 instrument chips above.
-- Playhead moves left→right.
-- Active finger determines which track is shown. If multiple armed fingers, prefer the one with highest extension/confidence.
-- Fingertip x → step index. Pinch toggles.
+- Always visible, no view switching.
+- 5 rows × 16 columns, rows top-to-bottom: kick, snare, ch, oh, rim.
+- Playhead column highlighted, moving left→right in sync with Tone.Transport.
+- Transparent panels over mirrored webcam video.
+- Row is always determined by **finger identity**, never by fingertip y-position. Fingertip x picks the step.
 
-### Panel view
-- 5 rows × 16 columns, all instruments visible.
-- Row order: kick, snare, ch, oh, rim.
-- **Row is determined by finger identity, not fingertip y.** Fingertip x → step. This is the single most important interaction rule — do not try to select rows by vertical pointing.
-- Only one commit per short window even if multiple fingers pinch simultaneously.
+---
+
+## 5. Modes
+
+### 5.1 Edit mode (default)
+
+Active whenever the user is **not** holding both hands fully open.
+
+- Mapped finger extended + visible + stable → "armed."
+- Armed fingertip x → step index (0–15) on that finger's row. Hover ring drawn on targeted cell.
+- Pinch thumb-to-armed-finger → toggle that cell. ~250 ms cooldown per finger.
+- Multiple fingers may be armed simultaneously, but only one pinch commit per ~100 ms window across all fingers (pick highest-confidence pinch).
+- All 5 tracks play whatever is in the grid.
+
+### 5.2 Mix mode (held)
+
+Entered while **both hands are fully open** — all 5 mapped fingers extended + both thumbs extended, held stable for ~300 ms. Exited the instant the pose breaks.
+
+- **No pinches commit while in mix mode.** Editing is suppressed to prevent accidents during performance.
+- For each mapped finger F:
+  - F **extended** → F's track unmuted (plays as programmed).
+  - F **fully curled** (strict threshold) → F's track muted.
+- Mutes are **live** — uncurling a finger immediately returns its track. Relaxing out of mix mode clears all mutes.
+- Visual: muted rows dim to ~30% opacity; playhead continues across all rows.
+
+### 5.3 Mode transition
+
+HUD shows a "MIX" badge when active. No long animation — just a 150 ms fade on row dimming.
 
 ---
 
@@ -78,30 +87,36 @@ type Instrument = "kick" | "snare" | "ch" | "oh" | "rim";
 
 type SequencerState = {
   steps: 16;
-  bpm: number;                       // fixed for MVP, e.g. 100
+  bpm: number;                         // fixed for MVP, e.g. 100
   isPlaying: boolean;
-  currentView: "single" | "panel";
-  selectedInstrument: Instrument;    // for single-track view
-  grid: Record<Instrument, boolean[]>; // each array length 16
-  hover: {
-    instrument: Instrument | null;
-    step: number | null;
-  };
+  mode: "edit" | "mix";
+  grid: Record<Instrument, boolean[]>; // each length 16
+  muted: Record<Instrument, boolean>;  // only non-default in mix mode
+  hover: { instrument: Instrument | null; step: number | null };
+  playheadStep: number;
 };
 
 type FingerState = {
   instrument: Instrument;
   visible: boolean;
-  extended: boolean;
+  extended: boolean;        // armed detection + mix-mode unmute
+  curled: boolean;          // strict curl, mix-mode mute
   pinching: boolean;
   stableFrames: number;
   hoverStep: number | null;
-  lastCommitAt: number;              // ms timestamp, for cooldown
+  lastCommitAt: number;
   smoothedTip: { x: number; y: number };
+};
+
+type HandState = {
+  handedness: "Left" | "Right";
+  visible: boolean;
+  fullyOpen: boolean;       // all 4 fingers + thumb extended
+  fingers: Record<string, FingerState>;
 };
 ```
 
-Initial grid: all false for all 5 instruments.
+Initial grid: all false. Initial muted: all false.
 
 ---
 
@@ -109,110 +124,118 @@ Initial grid: all false for all 5 instruments.
 
 ```
 App
-├── VideoFeed           // <video> element, mirrored
-├── OverlayCanvas       // grid, playhead, hover, fingertip markers
-├── GestureEngine       // MediaPipe landmarks → events
-├── SequencerEngine     // state + grid mutations
-├── AudioEngine         // Tone.js transport + samples
-└── HUD                 // BPM, view indicator, finger legend
+├── VideoFeed           // mirrored <video>
+├── OverlayCanvas       // grid, playhead, hover, fingertip markers, mute dimming
+├── GestureEngine       // landmarks → events + mode detection
+├── SequencerEngine     // grid + mode state
+├── AudioEngine         // Tone.js transport + samples, respects muted[]
+└── HUD                 // BPM, MIX badge, finger legend
 ```
 
-**GestureEngine**
-- In: MediaPipe landmark results per frame.
-- Out: `{ activeInstrument, hoverStep, toggleEvent, viewSwitchEvent }`.
+**GestureEngine** — in: MediaPipe landmarks per frame. Out: `{ mode, armedFingers[], hoverTargets[], toggleEvents[], muteState }`.
 
-**SequencerEngine**
-- In: toggle events, view switch events.
-- Out: updated `grid`, `currentView`, `selectedInstrument`.
+**SequencerEngine** — in: toggle events, mode, mute state. Out: updated `grid`, `mode`, `muted`.
 
-**AudioEngine**
-- In: grid, bpm, isPlaying.
-- Scheduled via `Tone.Transport`, fires samples on active steps.
+**AudioEngine** — in: grid, bpm, isPlaying, muted. `Tone.Transport` drives 16th-note ticks. Trigger sample if `grid[inst][step] && !muted[inst]`.
 
-**OverlayCanvas**
-- In: view, grid, playhead step, hover, fingertip positions.
-- Draws everything above the mirrored video element.
+**OverlayCanvas** — in: mode, grid, muted, playhead, hover, fingertip positions. Draws grid, dims muted rows in mix mode, shows hover ring and fingertip markers in edit mode.
 
 ---
 
 ## 8. Two decoupled loops
 
-**Vision loop** — runs on `requestAnimationFrame`:
+**Vision loop** (`requestAnimationFrame`):
 1. Grab video frame.
 2. `HandLandmarker.detectForVideo()`.
-3. Resolve handedness + finger identity for the 5 mapped fingers.
-4. Update per-finger `FingerState` (visibility, extension, pinch, stable frames, smoothed tip).
-5. Compute hover step from smoothed fingertip x.
-6. Detect commits (pinch rising edge past threshold + cooldown).
-7. Emit events to SequencerEngine.
-8. Push overlay state to canvas.
+3. Per hand: handedness, `fullyOpen`, per-finger `extended`/`curled`/`pinching`, smoothed tip.
+4. Determine mode: `fullyOpen` on both hands stable for 300 ms → mix; else edit.
+5. Edit mode: resolve armed fingers, hover steps, emit pinch commits.
+6. Mix mode: compute per-track mute from per-finger curl.
+7. Push state.
 
-**Audio loop** — driven by `Tone.Transport` at 16th-note resolution:
-1. Advance playhead step (0–15).
-2. For each instrument, trigger sample if `grid[inst][step]` is true.
-3. Notify UI of playhead step for highlight.
+**Audio loop** (`Tone.Transport`, 16n):
+1. Advance `playheadStep`.
+2. Trigger samples where `grid[inst][step] && !muted[inst]`.
 
-Keep them fully decoupled. Vision jitter must not affect timing.
+Fully decoupled — vision jitter never affects timing.
 
 ---
 
-## 9. Geometry — finger extension and pinch
+## 9. Geometry — extension, curl, pinch
 
-**Finger extension.** For finger F with landmarks MCP, PIP, DIP, TIP:
-- Extended when TIP is farther from the wrist than PIP along the MCP→TIP direction, and the MCP–PIP–TIP angle is close to straight (e.g. > 160°).
-- Cheap alternative: `dist(wrist, TIP) > dist(wrist, PIP) * k` with k ≈ 1.1.
+Normalize distances by hand size: `palmRef = dist(wrist, middleMCP)`.
 
-**Pinch detection.** For each hand:
-1. `raw = dist(thumbTip, fingerTip)`.
-2. Normalize by hand size: `palmRef = dist(wrist, middleMCP)`.
-3. `ratio = raw / palmRef`.
-4. Pinch when `ratio < 0.35` (tune; thresholds differ per finger — ring will need a slightly looser threshold).
-5. Require ratio below threshold for 2–3 consecutive frames before registering.
+**Extension** (armed + unmuted).
+For finger F with MCP/PIP/DIP/TIP:
+- Extended when `dist(wrist, TIP) > dist(wrist, PIP) * 1.1` AND angle at PIP > 160°.
 
-**Smoothing.** EMA on fingertip position: `smoothed = α·current + (1-α)·prev`, α ≈ 0.4.
+**Curl** (mix-mode mute, strict).
+- Curled when `dist(TIP, MCP) / palmRef < 0.45`.
+- Pinky threshold looser (~0.50) because pinky is shorter.
+- Must hold 4+ frames to trigger (avoids transition flicker).
 
-**Cooldown.** After a toggle commits, suppress further commits on that finger for ~250 ms.
+**Pinch** (edit mode only).
+1. `raw = dist(thumbTip, fingerTip)` same hand.
+2. `ratio = raw / palmRef`.
+3. Pinch when `ratio < 0.35` for 2–3 consecutive frames.
+4. ~250 ms cooldown on that finger after commit.
 
-**Stability.** Require 3–5 stable frames of visibility+extension before treating a finger as armed.
+**Hand fully open** (mix-mode entry).
+- All 4 non-thumb fingers extended + thumb extended.
+- Both hands satisfy this for 300 ms continuous before entering mix.
+
+**Smoothing.** EMA on fingertip: `smoothed = α·current + (1-α)·prev`, α ≈ 0.4.
+
+**Stability.** 3–5 frames of consistent state before treating a transition as real.
 
 ---
 
 ## 10. Coordinate mapping
 
-- Mirror the video horizontally (selfie view). Mirror landmark x accordingly so `fingertip.x` matches what the user sees.
-- Map `fingertip.x ∈ [0,1]` → step index `floor(x * 16)`, clamped to `[0, 15]`.
-- In single-track view, the grid occupies a centered horizontal band; clamp hover detection to the grid's bounding box so idle hands outside the grid don't register hover.
+- Mirror video horizontally. Mirror landmark x accordingly.
+- `fingertip.x ∈ [0,1]` → `floor(x * 16)`, clamped `[0, 15]`.
+- Grid is a centered rectangle. Hover only registers when fingertip is inside grid bbox.
 
 ---
 
 ## 11. Audio
 
-- 5 samples: kick, snare, closed hat, open hat, rim. Short one-shots.
-- Preload with `Tone.Players` or one `Tone.Player` per voice.
-- `Tone.Transport.scheduleRepeat(tick, "16n")` where `tick(time)` reads the current step and triggers active voices with `player.start(time)`.
-- BPM fixed (e.g. 100) for MVP; expose later.
-- Must be started from a user gesture (click "Start") — browser autoplay policy.
+- 5 short one-shot samples.
+- Preload via `Tone.Players`.
+- `Tone.Transport.scheduleRepeat(tick, "16n")`. In `tick(time)`, for each instrument: `if (grid[inst][step] && !muted[inst]) player.start(time)`.
+- BPM fixed (e.g. 100) for MVP.
+- Transport must start from a user gesture — use a "Start" button.
 
 ---
 
 ## 12. Visual language
 
-**Layers, bottom to top:**
-1. Mirrored webcam video, full screen, lightly darkened (translucent black veil, ~20% opacity) for contrast.
-2. Transparent sequencer UI — rgba panels around 0.20–0.28, thin bright borders, backdrop-blur where supported.
-3. Fingertip markers, hover ring on targeted cell, small glow/trail on the armed finger.
+**Layers:**
+1. Mirrored webcam, full screen, darkened with ~20% black veil.
+2. Transparent 5×16 grid — rgba ~0.22, thin bright borders, backdrop-blur if supported.
+3. Overlays: playhead column, fingertip markers, hover ring (edit mode only).
 
-**Per-instrument cell shape (panel view readability):**
+**Per-row cell shape:**
 - Kick → filled circle
 - Snare → filled square
 - Closed hat → short dash
 - Open hat → hollow ring
 - Rim → diamond
 
-**Active cell** — bright filled center + thin glowing outline.
-**Playhead column** — vertical bar, slightly brighter than surrounding cells.
+**Cell states:**
+- Empty → outline only.
+- Active → bright filled center + glowing outline.
+- On playhead + active → brighter flash.
 
-**HUD** — finger legend ("L index = Kick", etc.) visible at all times, at least during MVP.
+**Mute dimming (mix mode):**
+- Muted row → cells and outline at ~30% opacity.
+- Unmuted row → full brightness.
+- 150 ms fade.
+
+**HUD:**
+- Finger legend always visible in MVP: "L idx=Kick · L mid=Snare · R idx=CH · R mid=OH · R pinky=Rim".
+- BPM readout.
+- "MIX" badge when mode == "mix".
 
 ---
 
@@ -220,63 +243,66 @@ Keep them fully decoupled. Vision jitter must not affect timing.
 
 | Problem | Mitigation |
 |---|---|
-| Hand disappears briefly | Keep last known state for ~200 ms before clearing armed status |
-| Handedness swaps when hands cross | Require 3+ stable frames before accepting a handedness change |
-| Ring finger detection weaker | Looser pinch threshold for ring; require slightly longer stability |
-| Accidental pinches in resting pose | Require armed state + hover inside grid before commit is accepted |
-| Camera mirror confusion | Mirror video and landmark x together, consistently |
-| Multiple simultaneous pinches | One commit per ~100 ms window; pick highest-confidence pinch |
+| Hand disappears briefly | Keep last state ~200 ms before clearing |
+| Handedness swaps on crossing | 3+ stable frames before accepting swap |
+| Pinky tracking less stable | Looser curl threshold, longer stability window |
+| Accidental pinches at rest | Require armed + hover inside grid bbox + stable |
+| Accidental mix entry | 300 ms hold on both-hands-open |
+| Pinches inside mix mode | Suppress all commits while mode == "mix" |
+| Camera mirror confusion | Mirror video and landmark x together consistently |
+| Ring sags when middle curls | Ring is unmapped; state ignored |
 
 ---
 
 ## 14. Build milestones
 
-**Phase 1 — Static sequencer.** 5×16 grid, mouse click to toggle, Tone.js loop plays back. No camera yet.
+**Phase 1 — Static sequencer.** 5×16 grid, mouse toggle, Tone.js loop. No camera.
 
-**Phase 2 — Webcam + landmarks.** Show mirrored video, overlay fingertip dots, distinguish L/R hands, identify the 5 mapped fingers.
+**Phase 2 — Webcam + landmarks.** Mirrored video, fingertip dots, L/R distinction, identify L idx, L mid, R idx, R mid, R pinky.
 
-**Phase 3 — Hover targeting.** Armed finger highlights the cell under it. No commits yet.
+**Phase 3 — Hover targeting.** Armed finger highlights cell on its row. No commits.
 
-**Phase 4 — Pinch to toggle.** Wire up pinch detection with smoothing and cooldown. Single-track view usable end-to-end.
+**Phase 4 — Edit mode.** Pinch commits, smoothing, cooldown. Full editing works.
 
-**Phase 5 — Panel view.** Render all 5 rows. Row fixed by finger identity.
+**Phase 5 — Mix mode.** Detect both-hands-open, enter/exit on held pose, per-finger curl → mute, suppress commits in mix, AudioEngine respects `muted[]`.
 
-**Phase 6 — View switching.** Both-palms-open hold gesture, animated crossfade.
-
-**Phase 7 — Polish.** Glass panels, playhead, per-instrument cell shapes, hand trails, latency tuning, on-screen finger legend.
+**Phase 6 — Polish.** Glass panels, per-instrument cell shapes, playhead flash, mute-dim transitions, finger legend, latency tuning.
 
 ---
 
 ## 15. Non-goals for MVP
 
-Explicitly out of scope until the core works:
 - Velocity from pinch depth
-- Mute/solo poses
+- Explicit solo gesture (effective solo = curl 4 fingers in mix mode)
 - Live tap-record with quantization
 - Swing
 - Sample swapping
 - Variable BPM UI
 - Mobile support
+- Latched mix mode
+- Multi-user
 
 ---
 
-## 16. Demo script (end-to-end behavior)
+## 16. Demo script
 
-1. User clicks Start. Webcam opens, mirrored.
-2. Transparent single-track sequencer appears over video, kick row shown.
-3. User extends left index → kick row is selected.
-4. User moves fingertip horizontally; hover ring tracks the step under it.
-5. Pinch thumb to left index → kick placed on that step. Loop plays it back next bar.
-6. User extends left middle → snare row selected; program snare.
-7. Right index/middle/ring → closed hat, open hat, rim.
-8. User opens both hands, all 5 mapped fingers extended, holds 500 ms → crossfade to panel view.
-9. Full 5×16 grid visible. User keeps editing by finger identity while the loop plays.
-10. Open both hands again → back to single-track.
+1. Click Start. Webcam opens mirrored. Empty 5×16 grid over video.
+2. Loop starts (silent).
+3. Left index: pinch at steps 1, 5, 9, 13 → four-on-the-floor kick.
+4. Right index: hats on off-beats.
+5. Left middle: snares on 5 and 13.
+6. Groove in motion.
+7. Open both hands, hold 300 ms → MIX badge appears.
+8. Curl left index → kick row dims, drops out live.
+9. Extend left index again → kick returns. Curl left middle → snare drops.
+10. Relax hands → exit mix mode, all tracks return.
+11. Back in edit mode seamlessly; keep programming.
 
 ---
 
 ## 17. Open questions for the implementer
 
-- Canvas vs SVG for the overlay — canvas is recommended for animation smoothness, but SVG may be easier for the per-instrument cell shapes. Pick one and stay consistent.
-- Where to source the 5 drum samples. Any small CC0 drum kit is fine for MVP.
-- Whether to gate audio start behind an explicit "Start" button (required by autoplay policy) or a gesture (e.g. both palms open once on load).
+- Canvas vs SVG for the overlay — canvas recommended; SVG easier for per-row shapes. Pick one.
+- Source of 5 drum samples — any CC0 kit.
+- Palm-facing-camera check for mix entry — nice-to-have, skip if it complicates landmark math.
+- Grid auto-scale vs fixed pixel size — fixed is simpler for MVP.
