@@ -38,7 +38,7 @@ export const FINGER_TO_INSTRUMENT: Record<FingerKey, Instrument> = {
 export type Mode = 'edit' | 'mix'
 
 // Grid bounding box in normalized viewport coordinates (x is mirrored display x).
-export const GRID_BBOX = { x0: 0.1, y0: 0.3, x1: 0.9, y1: 0.78 }
+export const GRID_BBOX = { x0: 0.04, y0: 0.14, x1: 0.96, y1: 0.92 }
 
 export type Point = { x: number; y: number }
 

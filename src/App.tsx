@@ -29,12 +29,19 @@ export default function App() {
             required.
           </p>
           <ul className="intro-legend">
-            <li>Left index → Kick · Left middle → Snare</li>
-            <li>Right index → Closed hat · Right middle → Open hat · Right pinky → Rim</li>
-            <li>Pinch thumb to a mapped finger over the grid to toggle a step.</li>
+            <li>EDIT: move your right index across the grid to aim.</li>
+            <li>Pinch your right thumb + right index to toggle the highlighted cell.</li>
             <li>
-              Open both hands (hold ~300 ms) to enter MIX mode — curl a finger
-              to mute its track live.
+              Open both hands (hold ~300 ms) to enter MIX mode — finger mapping
+              activates there.
+            </li>
+            <li>
+              MIX fingers: L index = Kick · L middle = Snare · R index = Closed
+              hat · R middle = Open hat · R pinky = Rim.
+            </li>
+            <li>
+              In MIX, curl a mapped finger to mute its track live, then relax to
+              unmute.
             </li>
           </ul>
           <button onClick={onStart}>Start</button>
