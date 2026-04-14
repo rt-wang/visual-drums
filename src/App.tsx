@@ -18,33 +18,49 @@ export default function App() {
 
   return (
     <div className="app">
+      <div className="app-backdrop" />
+      <div className="app-noise" />
       {started && <VideoFeed />}
+      {started && <div className="stage-vignette" />}
       {started && <OverlayCanvas />}
       {started && <HUD />}
       {!started && (
         <div className="start-screen">
-          <h1>Gesture Drum Sequencer</h1>
-          <p>
-            Program and perform a 5-track drum loop with your hands. Webcam
-            required.
-          </p>
-          <ul className="intro-legend">
-            <li>EDIT: move either index across the grid to aim.</li>
-            <li>Pinch left or right thumb + index to toggle the highlighted cell.</li>
-            <li>
-              Open both hands (hold ~300 ms) to enter MIX mode — finger mapping
-              activates there.
-            </li>
-            <li>
-              MIX fingers: L index = Kick · L middle = Snare · R index = Closed
-              hat · R middle = Open hat · R pinky = Rim.
-            </li>
-            <li>
-              In MIX, curl a mapped finger to mute its track live, then relax to
-              unmute.
-            </li>
-          </ul>
-          <button onClick={onStart}>Start</button>
+          <div className="start-card">
+            <div className="start-kicker">Sketch 3 / Gesture Language</div>
+            <h1>Gesture Drum Sequencer</h1>
+            <p>
+              Program and perform a five-track loop in midair. The grid stays on
+              screen, your hands become the syntax, and the camera becomes the
+              runtime.
+            </p>
+
+            <div className="intro-grid">
+              <article className="intro-panel">
+                <span className="intro-label">Edit</span>
+                <p>Move either index across the grid to aim.</p>
+                <p>Pinch that thumb and index to drop or remove a step.</p>
+              </article>
+
+              <article className="intro-panel">
+                <span className="intro-label">Mix</span>
+                <p>Open both hands and hold for a beat to enter live mix mode.</p>
+                <p>Curl mapped fingers to mute tracks, relax to bring them back.</p>
+              </article>
+
+              <article className="intro-panel intro-panel-wide">
+                <span className="intro-label">Finger Map</span>
+                <p>
+                  L index = Kick · L middle = Snare · R index = Closed hat · R
+                  middle = Open hat · R pinky = Rim
+                </p>
+              </article>
+            </div>
+
+            <button className="start-button" onClick={onStart}>
+              Start Camera + Audio
+            </button>
+          </div>
         </div>
       )}
     </div>
